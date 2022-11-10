@@ -111,6 +111,8 @@ public class QuorumPeerConfig {
 
     protected LearnerType peerType = LearnerType.PARTICIPANT;
 
+    protected String networkinterface = null;
+
     /**
      * Configurations for the quorumpeer-to-quorumpeer sasl authentication
      */
@@ -385,6 +387,8 @@ public class QuorumPeerConfig {
                 multiAddressReachabilityCheckEnabled = parseBoolean(key, value);
             } else if (key.equals("oraclePath")) {
                 oraclePath = value;
+            } else if (key.equals("interface")){
+                networkinterface = value;
             } else {
                 System.setProperty("zookeeper." + key, value);
             }
@@ -963,5 +967,9 @@ public class QuorumPeerConfig {
                                       + key
                                       + ". Choose 'true' or 'false.'");
         }
+    }
+
+    public String getNetworkInterface() {
+        return networkinterface;
     }
 }

@@ -1208,4 +1208,11 @@
     </plugins>
   </reporting>
 
+  <dependencies>
+  	<dependency>
+  		<groupId>com.lrmp</groupId>
+  		<artifactId>lrmp</artifactId>
+  		<version>1.0.0</version>
+  	</dependency>
+  </dependencies>
 </project>

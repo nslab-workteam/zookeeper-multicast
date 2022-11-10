@@ -87,6 +87,8 @@ import org.apache.zookeeper.server.util.ZxidUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import inria.net.lrmp.*;
+
 /**
  * This class manages the quorum protocol. There are three states this server
  * can be in:
@@ -132,6 +134,8 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
     QuorumAuthServer authServer;
     QuorumAuthLearner authLearner;
+
+    private LrmpSocketWrapper lrmpSocket;
 
     /**
      * ZKDatabase is a top level member of quorumpeer
@@ -1063,6 +1067,11 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         return new QuorumPeer();
     }
 
+    public QuorumPeer(LrmpSocketWrapper lrmpSocket) throws SaslException {
+        this();
+        this.lrmpSocket = lrmpSocket;
+    }
+
     public QuorumPeer() throws SaslException {
         super("QuorumPeer");
         quorumStats = new QuorumStats(this);
@@ -1333,11 +1342,11 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     public Observer observer;
 
     protected Follower makeFollower(FileTxnSnapLog logFactory) throws IOException {
-        return new Follower(this, new FollowerZooKeeperServer(logFactory, this, this.zkDb));
+        return new Follower(this, new FollowerZooKeeperServer(logFactory, this, this.zkDb), lrmpSocket);
     }
 
     protected Leader makeLeader(FileTxnSnapLog logFactory) throws IOException, X509Exception {
-        return new Leader(this, new LeaderZooKeeperServer(logFactory, this, this.zkDb));
+        return new Leader(this, new LeaderZooKeeperServer(logFactory, this, this.zkDb), lrmpSocket);
     }
 
     protected Observer makeObserver(FileTxnSnapLog logFactory) throws IOException {

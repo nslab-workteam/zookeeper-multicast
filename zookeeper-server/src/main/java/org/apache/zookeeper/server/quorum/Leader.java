@@ -74,6 +74,8 @@ import org.apache.zookeeper.util.ServiceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import inria.net.lrmp.*;;
+
 /**
  * This class has the control logic for the Leader.
  */
@@ -86,6 +88,8 @@ public class Leader extends LearnerMaster {
     static {
         LOG.info("TCP NoDelay set to: {}", nodelay);
     }
+
+    private LrmpSocketWrapper lrmpSocket;
 
     public static class Proposal extends SyncedLearnerTracker {
 
@@ -310,6 +314,11 @@ public class Leader extends LearnerMaster {
         this.zk = zk;
     }
 
+    public Leader(QuorumPeer self, LeaderZooKeeperServer zk, LrmpSocketWrapper lrmpSocket) throws IOException {
+        this(self, zk);
+        this.lrmpSocket = lrmpSocket;
+    }
+
     Optional<ServerSocket> createServerSocket(InetSocketAddress address, boolean portUnification, boolean sslQuorum) {
         ServerSocket serverSocket;
         try {
@@ -522,7 +531,7 @@ public class Leader extends LearnerMaster {
                     socket.setTcpNoDelay(nodelay);
 
                     BufferedInputStream is = new BufferedInputStream(socket.getInputStream());
-                    LearnerHandler fh = new LearnerHandler(socket, is, Leader.this);
+                    LearnerHandler fh = new LearnerHandler(socket, is, Leader.this, lrmpSocket);
                     fh.start();
                 } catch (SocketException e) {
                     error = true;

@@ -19,6 +19,7 @@
 package org.apache.zookeeper.server.quorum;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
@@ -26,11 +27,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Queue;
+import java.util.LinkedList;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -41,7 +45,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+
 import javax.net.ssl.SSLSocket;
+
 import org.apache.jute.BinaryInputArchive;
 import org.apache.jute.BinaryOutputArchive;
 import org.apache.jute.InputArchive;
@@ -69,6 +75,8 @@ import org.apache.zookeeper.util.ServiceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import inria.net.lrmp.LrmpSocketWrapper;
+
 /**
  * This class is the superclass of two of the three main actors in a ZK
  * ensemble: Followers and Observers. Both Followers and Observers share
@@ -92,6 +100,10 @@ public class Learner {
     protected Socket sock;
     protected MultipleAddresses leaderAddr;
     protected AtomicBoolean sockBeingClosed = new AtomicBoolean(false);
+
+    protected LrmpSocketWrapper lrmpSocket;
+    protected BufferedInputStream leaderBfis;
+    protected InputArchive leaderMcIs;
 
     /**
      * Socket getter
@@ -224,10 +236,13 @@ public class Learner {
      * @throws IOException
      */
     void readPacket(QuorumPacket pp) throws IOException {
+        LOG.info("Read packet");
         synchronized (leaderIs) {
             leaderIs.readRecord(pp, "packet");
             messageTracker.trackReceived(pp.getType());
+            LOG.warn("packet type: {}", LearnerHandler.packetToString(pp));
         }
+
         if (LOG.isTraceEnabled()) {
             final long traceMask =
                 (pp.getType() == Leader.PING) ? ZooTrace.SERVER_PING_TRACE_MASK

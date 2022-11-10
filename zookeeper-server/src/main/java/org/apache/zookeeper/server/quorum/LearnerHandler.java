@@ -57,6 +57,8 @@ import org.apache.zookeeper.server.util.ZxidUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import inria.net.lrmp.*;
+
 /**
  * There will be an instance of this class created by the Leader for each
  * learner. All communication with a learner is handled by this
@@ -80,6 +82,8 @@ public class LearnerHandler extends ZooKeeperThread {
     public Socket getSocket() {
         return sock;
     }
+
+    private LrmpSocketWrapper lrmpSocket;
 
     AtomicBoolean sockBeingClosed = new AtomicBoolean(false);
 
@@ -229,12 +233,14 @@ public class LearnerHandler extends ZooKeeperThread {
 
     }
 
-    private BinaryInputArchive ia;
+    private BinaryInputArchive ia, mcia;
 
-    private BinaryOutputArchive oa;
+    private BinaryOutputArchive oa, mcoa;
 
     private final BufferedInputStream bufferedInput;
-    private BufferedOutputStream bufferedOutput;
+
+    private BufferedInputStream mcBufferedInput;
+    private BufferedOutputStream bufferedOutput, mcBufferedOutput;
 
     protected final MessageTracker messageTracker;
 
@@ -297,6 +303,12 @@ public class LearnerHandler extends ZooKeeperThread {
         }
 
         this.messageTracker = new MessageTracker(MessageTracker.BUFFERED_MESSAGE_SIZE);
+    }
+
+    LearnerHandler(Socket sock, BufferedInputStream bufferedInput, LearnerMaster learnerMaster, 
+                    LrmpSocketWrapper lrmpSocket) throws IOException {
+        this(sock, bufferedInput, learnerMaster);
+        this.lrmpSocket = lrmpSocket;
     }
 
     @Override
@@ -365,7 +377,17 @@ public class LearnerHandler extends ZooKeeperThread {
                 if (p.getZxid() > 0) {
                     lastZxid = p.getZxid();
                 }
-                oa.writeRecord(p, "packet");
+                if (p.getType() == Leader.PROPOSAL) {
+                    // LRMP
+                    LOG.info("LRMP: Got proposol message, Call LRMP to send multicast packet!");
+                    mcBufferedOutput = new BufferedOutputStream(lrmpSocket.getOutputStream());
+                    mcoa = BinaryOutputArchive.getArchive(mcBufferedOutput);
+                    mcoa.writeRecord(p, "packet");
+                    mcBufferedOutput.close();
+                }else{
+                    oa.writeRecord(p, "packet");
+                }
+                // oa.writeRecord(p, "packet");
                 packetsSent.incrementAndGet();
                 messageTracker.trackSent(p.getType());
             } catch (IOException e) {

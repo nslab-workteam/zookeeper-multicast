@@ -43,6 +43,8 @@ import org.apache.zookeeper.util.ServiceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import inria.net.lrmp.*;
+
 /**
  *
  * <h2>Configuration file</h2>
@@ -79,6 +81,8 @@ public class QuorumPeerMain {
     private static final String USAGE = "Usage: QuorumPeerMain configfile";
 
     protected QuorumPeer quorumPeer;
+
+    protected LrmpSocketWrapper lrmpSocket;
 
     /**
      * To start the replicated server specify the configuration file name on
@@ -119,10 +123,15 @@ public class QuorumPeerMain {
         ServiceUtils.requestSystemExit(ExitCode.EXECUTION_FINISHED.getValue());
     }
 
-    protected void initializeAndRun(String[] args) throws ConfigException, IOException, AdminServerException {
+    protected void initializeAndRun(String[] args) throws ConfigException, IOException, AdminServerException{
         QuorumPeerConfig config = new QuorumPeerConfig();
         if (args.length == 1) {
             config.parse(args[0]);
+        }
+        try {
+            lrmpSocket = new LrmpSocketWrapper("225.0.0.100", 6000, 1, config.getNetworkInterface());
+        } catch (LrmpException e) {
+            e.printStackTrace();
         }
 
         // Start and schedule the the purge task
@@ -243,7 +252,7 @@ public class QuorumPeerMain {
 
     // @VisibleForTesting
     protected QuorumPeer getQuorumPeer() throws SaslException {
-        return new QuorumPeer();
+        return new QuorumPeer(lrmpSocket);
     }
 
     /**

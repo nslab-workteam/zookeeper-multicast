@@ -19,17 +19,23 @@
 package org.apache.zookeeper.server.quorum;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+
+import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+
+import org.apache.jute.BinaryInputArchive;
 import org.apache.jute.Record;
 import org.apache.zookeeper.ZooDefs.OpCode;
 import org.apache.zookeeper.common.Time;
 import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.ServerMetrics;
 import org.apache.zookeeper.server.TxnLogEntry;
+import org.apache.zookeeper.server.ZooTrace;
 import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
 import org.apache.zookeeper.server.quorum.flexible.QuorumVerifier;
 import org.apache.zookeeper.server.util.SerializeUtils;
@@ -37,6 +43,8 @@ import org.apache.zookeeper.server.util.ZxidUtils;
 import org.apache.zookeeper.txn.SetDataTxn;
 import org.apache.zookeeper.txn.TxnDigest;
 import org.apache.zookeeper.txn.TxnHeader;
+
+import inria.net.lrmp.*;
 
 /**
  * This class has the control logic for the Follower.
@@ -49,10 +57,17 @@ public class Follower extends Learner {
 
     ObserverMaster om;
 
+    long lastZxid = 0;
+
     Follower(final QuorumPeer self, final FollowerZooKeeperServer zk) {
         this.self = Objects.requireNonNull(self);
         this.fzk = Objects.requireNonNull(zk);
         this.zk = zk;
+    }
+
+    Follower(final QuorumPeer self, final FollowerZooKeeperServer zk, LrmpSocketWrapper lrmpSocket) {
+        this(self, zk);
+        this.lrmpSocket = lrmpSocket;
     }
 
     @Override
@@ -120,7 +135,13 @@ public class Follower extends Learner {
                 }
                 // create a reusable packet to reduce gc impact
                 QuorumPacket qp = new QuorumPacket();
+                QuorumPacket qpm = new QuorumPacket();
                 while (this.isRunning()) {
+                    readPacketFromLrmp(qpm);
+                    if (qpm.getZxid() > lastZxid) {
+                        processPacket(qpm);
+                        lastZxid = qpm.getZxid();
+                    }
                     readPacket(qp);
                     processPacket(qp);
                 }
@@ -246,6 +267,28 @@ public class Follower extends Learner {
         }
     }
 
+    
+    void readPacketFromLrmp(QuorumPacket pp) throws IOException {
+
+        InputStream fromLrmpLeader = lrmpSocket.getInputStream();
+        if (fromLrmpLeader != null) {
+            leaderBfis = new BufferedInputStream(fromLrmpLeader);
+            leaderMcIs = BinaryInputArchive.getArchive(leaderBfis);
+            leaderMcIs.readRecord(pp, "packet");
+            fromLrmpLeader.close();
+            messageTracker.trackReceived(pp.getType());
+        }
+
+        LOG.warn("packet type: {}", LearnerHandler.packetToString(pp));
+        if (LOG.isTraceEnabled()) {
+            final long traceMask =
+                (pp.getType() == Leader.PING) ? ZooTrace.SERVER_PING_TRACE_MASK
+                    : ZooTrace.SERVER_PACKET_TRACE_MASK;
+
+            ZooTrace.logQuorumPacket(LOG, traceMask, 'i', pp);
+        }
+    }
+
     /**
      * The zxid of the last operation seen
      * @return zxid
@@ -286,5 +329,4 @@ public class Follower extends Learner {
         LOG.info("shutdown Follower");
         super.shutdown();
     }
-
 }
