@@ -7,7 +7,7 @@ to_send_path="to-send"
 target_path="~/zookeeper"
 
 h1="192.168.132.31"
-h2="192.168.132.32"
+h2="192.168.132.33"
 h10="192.168.132.47"
 
 sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h1:$target_path

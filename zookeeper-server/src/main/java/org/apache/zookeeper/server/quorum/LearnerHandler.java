@@ -241,6 +241,7 @@ public class LearnerHandler extends ZooKeeperThread {
 
     private BufferedInputStream mcBufferedInput;
     private BufferedOutputStream bufferedOutput, mcBufferedOutput;
+    private QuorumPacket pingQp;
 
     protected final MessageTracker messageTracker;
 
@@ -377,13 +378,17 @@ public class LearnerHandler extends ZooKeeperThread {
                 if (p.getZxid() > 0) {
                     lastZxid = p.getZxid();
                 }
-                if (p.getType() == Leader.PROPOSAL) {
+                if (p.getType() == Leader.PROPOSAL || p.getType() == Leader.COMMIT) {
                     // LRMP
                     LOG.info("LRMP: Got proposol message, Call LRMP to send multicast packet!");
-                    mcBufferedOutput = new BufferedOutputStream(lrmpSocket.getOutputStream());
-                    mcoa = BinaryOutputArchive.getArchive(mcBufferedOutput);
+                    BufferedOutputStream bos = new BufferedOutputStream(lrmpSocket.getOutputStream());
+                    mcoa = BinaryOutputArchive.getArchive(bos);
                     mcoa.writeRecord(p, "packet");
-                    mcBufferedOutput.close();
+                    bos.close();    
+                    // for (int i=0; i<5; i++) {
+                    //     oa.writeRecord(new QuorumPacket(Leader.PING, learnerMaster.getLastProposed(), null, null), "packet");
+                    // }
+                    
                 }else{
                     oa.writeRecord(p, "packet");
                 }

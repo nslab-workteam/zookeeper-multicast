@@ -1,0 +1,1 @@
+sudo apache-zookeeper-3.7.1-bin/bin/zkServer.sh start-foreground

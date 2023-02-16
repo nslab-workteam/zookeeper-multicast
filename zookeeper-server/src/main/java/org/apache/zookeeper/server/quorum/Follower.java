@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.Objects;
 
@@ -46,6 +47,8 @@ import org.apache.zookeeper.txn.TxnHeader;
 
 import inria.net.lrmp.*;
 
+import java.util.PriorityQueue;
+
 /**
  * This class has the control logic for the Follower.
  */
@@ -58,6 +61,9 @@ public class Follower extends Learner {
     ObserverMaster om;
 
     long lastZxid = 0;
+
+    QuorumPacket qp;
+    QuorumPacket qpm;
 
     Follower(final QuorumPeer self, final FollowerZooKeeperServer zk) {
         this.self = Objects.requireNonNull(self);
@@ -134,21 +140,35 @@ public class Follower extends Learner {
                     om = null;
                 }
                 // create a reusable packet to reduce gc impact
-                QuorumPacket qp = new QuorumPacket();
-                QuorumPacket qpm = new QuorumPacket();
+                qp = new QuorumPacket();
+                qpm = new QuorumPacket();
+
+                // Thread lrmpThread = new Thread(()->{lrmpLoop();});
+                // lrmpThread.start();
+                Thread tcpThread = new Thread(()->{tcpLoop();});
+                tcpThread.start();
                 while (this.isRunning()) {
                     readPacketFromLrmp(qpm);
                     if (qpm.getZxid() > lastZxid) {
                         processPacket(qpm);
                         lastZxid = qpm.getZxid();
                     }
-                    readPacket(qp);
-                    processPacket(qp);
+                    // readPacket(qp);
+                    // processPacket(qp);
+                    // if (qp.getType() < qpm.getType()) {
+                    //     preprocessPacket(qp);
+                    //     preprocessPacket(qpm);
+                    // } else {
+                    //     preprocessPacket(qpm);
+                    //     preprocessPacket(qp);
+                    // }
                 }
+                // lrmpThread.join();
+                tcpThread.join();
+
             } catch (Exception e) {
                 LOG.warn("Exception when following the leader", e);
                 closeSocket();
-
                 // clear pending revalidations
                 pendingRevalidations.clear();
             }
@@ -269,23 +289,49 @@ public class Follower extends Learner {
 
     
     void readPacketFromLrmp(QuorumPacket pp) throws IOException {
-
         InputStream fromLrmpLeader = lrmpSocket.getInputStream();
-        if (fromLrmpLeader != null) {
-            leaderBfis = new BufferedInputStream(fromLrmpLeader);
-            leaderMcIs = BinaryInputArchive.getArchive(leaderBfis);
-            leaderMcIs.readRecord(pp, "packet");
-            fromLrmpLeader.close();
-            messageTracker.trackReceived(pp.getType());
+        synchronized (leaderIs) {
+            if (fromLrmpLeader != null) {
+                leaderBfis = new BufferedInputStream(fromLrmpLeader);
+                leaderMcIs = BinaryInputArchive.getArchive(leaderBfis);
+                leaderMcIs.readRecord(pp, "packet");
+                fromLrmpLeader.close();
+                messageTracker.trackReceived(pp.getType());
+                LOG.warn("packet type: {}", LearnerHandler.packetToString(pp));
+            }
         }
 
-        LOG.warn("packet type: {}", LearnerHandler.packetToString(pp));
         if (LOG.isTraceEnabled()) {
             final long traceMask =
                 (pp.getType() == Leader.PING) ? ZooTrace.SERVER_PING_TRACE_MASK
                     : ZooTrace.SERVER_PACKET_TRACE_MASK;
 
             ZooTrace.logQuorumPacket(LOG, traceMask, 'i', pp);
+        }
+    }
+
+    void tcpLoop(){
+        while(this.isRunning()) {
+            try {
+                readPacket(qp);
+                processPacket(qp);
+            }catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    void lrmpLoop(){
+        while(this.isRunning()) {
+            try {
+                readPacketFromLrmp(qpm);
+                if (qpm.getZxid() > lastZxid) {
+                    processPacket(qpm);
+                    lastZxid = qpm.getZxid();
+                }
+            }catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 
