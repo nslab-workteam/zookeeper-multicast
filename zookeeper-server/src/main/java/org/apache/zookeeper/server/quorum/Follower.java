@@ -23,6 +23,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Comparator;
@@ -142,29 +143,23 @@ public class Follower extends Learner {
                 // create a reusable packet to reduce gc impact
                 qp = new QuorumPacket();
                 qpm = new QuorumPacket();
+                sock.setSoTimeout(1);
 
-                // Thread lrmpThread = new Thread(()->{lrmpLoop();});
-                // lrmpThread.start();
-                Thread tcpThread = new Thread(()->{tcpLoop();});
-                tcpThread.start();
                 while (this.isRunning()) {
                     readPacketFromLrmp(qpm);
                     if (qpm.getZxid() > lastZxid) {
                         processPacket(qpm);
                         lastZxid = qpm.getZxid();
+                        LOG.warn("packet type: {}", LearnerHandler.packetToString(qpm));
                     }
-                    // readPacket(qp);
-                    // processPacket(qp);
-                    // if (qp.getType() < qpm.getType()) {
-                    //     preprocessPacket(qp);
-                    //     preprocessPacket(qpm);
-                    // } else {
-                    //     preprocessPacket(qpm);
-                    //     preprocessPacket(qp);
-                    // }
+                    try {
+                        readPacket(qp);
+                        processPacket(qp);
+                    } catch (SocketTimeoutException e) {
+                        LOG.debug("No data to receive!");
+                    }
+                    
                 }
-                // lrmpThread.join();
-                tcpThread.join();
 
             } catch (Exception e) {
                 LOG.warn("Exception when following the leader", e);
@@ -292,12 +287,11 @@ public class Follower extends Learner {
         InputStream fromLrmpLeader = lrmpSocket.getInputStream();
         synchronized (leaderIs) {
             if (fromLrmpLeader != null) {
-                leaderBfis = new BufferedInputStream(fromLrmpLeader);
-                leaderMcIs = BinaryInputArchive.getArchive(leaderBfis);
+                leaderBfIs = new BufferedInputStream(fromLrmpLeader);
+                leaderMcIs = BinaryInputArchive.getArchive(leaderBfIs);
                 leaderMcIs.readRecord(pp, "packet");
                 fromLrmpLeader.close();
                 messageTracker.trackReceived(pp.getType());
-                LOG.warn("packet type: {}", LearnerHandler.packetToString(pp));
             }
         }
 

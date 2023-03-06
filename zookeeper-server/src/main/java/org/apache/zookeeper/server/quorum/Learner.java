@@ -102,7 +102,7 @@ public class Learner {
     protected AtomicBoolean sockBeingClosed = new AtomicBoolean(false);
 
     protected LrmpSocketWrapper lrmpSocket;
-    protected BufferedInputStream leaderBfis;
+    protected BufferedInputStream leaderBfIs;
     protected InputArchive leaderMcIs;
 
     /**

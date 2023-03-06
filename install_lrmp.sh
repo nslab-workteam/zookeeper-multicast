@@ -1,0 +1,1 @@
+mvn install:install-file -Dfile="$(pwd)/lrmp/lrmp.jar" "-DgroupId=com.lrmp" "-DartifactId=lrmp" "-Dversion=1.0.0" "-Dpackaging=jar" "-DcreateChecksum=true"

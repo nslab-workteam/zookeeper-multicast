@@ -378,17 +378,13 @@ public class LearnerHandler extends ZooKeeperThread {
                 if (p.getZxid() > 0) {
                     lastZxid = p.getZxid();
                 }
-                if (p.getType() == Leader.PROPOSAL || p.getType() == Leader.COMMIT) {
+                if (p.getType() == Leader.PROPOSAL) {
                     // LRMP
                     LOG.info("LRMP: Got proposol message, Call LRMP to send multicast packet!");
                     BufferedOutputStream bos = new BufferedOutputStream(lrmpSocket.getOutputStream());
                     mcoa = BinaryOutputArchive.getArchive(bos);
                     mcoa.writeRecord(p, "packet");
-                    bos.close();    
-                    // for (int i=0; i<5; i++) {
-                    //     oa.writeRecord(new QuorumPacket(Leader.PING, learnerMaster.getLastProposed(), null, null), "packet");
-                    // }
-                    
+                    bos.close();
                 }else{
                     oa.writeRecord(p, "packet");
                 }
@@ -472,7 +468,7 @@ public class LearnerHandler extends ZooKeeperThread {
             type = "INFORMANDACTIVATE";
             break;
         default:
-            type = "UNKNOWN" + p.getType();
+            type = "UNKNOWN " + p.getType();
         }
         String entry = null;
         if (type != null) {
