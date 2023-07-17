@@ -764,6 +764,11 @@
         <artifactId>commons-io</artifactId>
         <version>${commons-io.version}</version>
       </dependency>
+      <dependency>
+        <groupId>com.lrmp</groupId>
+        <artifactId>lrmp</artifactId>
+        <version>1.0.0</version>
+  	  </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -1215,4 +1220,5 @@
   		<version>1.0.0</version>
   	</dependency>
   </dependencies>
+  
 </project>

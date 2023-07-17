@@ -27,14 +27,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.Queue;
-import java.util.LinkedList;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -239,7 +236,7 @@ public class Learner {
         synchronized (leaderIs) {
             leaderIs.readRecord(pp, "packet");
             messageTracker.trackReceived(pp.getType());
-            LOG.warn("packet type: {}", LearnerHandler.packetToString(pp));
+            // LOG.warn("packet type: {}", LearnerHandler.packetToString(pp));
         }
 
         if (LOG.isTraceEnabled()) {

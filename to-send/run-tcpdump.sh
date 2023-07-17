@@ -1,1 +1,0 @@
-sudo tcpdump -i eno1 -w h1.pcap &> h1.log &

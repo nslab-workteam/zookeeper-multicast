@@ -49,6 +49,7 @@ import org.apache.zookeeper.server.ZKDatabase;
 import org.apache.zookeeper.server.ZooKeeperThread;
 import org.apache.zookeeper.server.ZooTrace;
 import org.apache.zookeeper.server.quorum.Leader.Proposal;
+import org.apache.zookeeper.server.quorum.Leader.LearnerCnxAcceptor.LrmpSocketHandler;
 import org.apache.zookeeper.server.quorum.QuorumPeer.LearnerType;
 import org.apache.zookeeper.server.quorum.auth.QuorumAuthServer;
 import org.apache.zookeeper.server.util.ConfigUtils;
@@ -84,6 +85,8 @@ public class LearnerHandler extends ZooKeeperThread {
     }
 
     private LrmpSocketWrapper lrmpSocket;
+
+    private LrmpSocketHandler lrmpHandler;
 
     AtomicBoolean sockBeingClosed = new AtomicBoolean(false);
 
@@ -312,6 +315,12 @@ public class LearnerHandler extends ZooKeeperThread {
         this.lrmpSocket = lrmpSocket;
     }
 
+    LearnerHandler(Socket sock, BufferedInputStream bufferedInput, LearnerMaster learnerMaster, 
+                    LrmpSocketHandler handler) throws IOException {
+        this(sock, bufferedInput, learnerMaster);
+        this.lrmpHandler = handler;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -378,13 +387,12 @@ public class LearnerHandler extends ZooKeeperThread {
                 if (p.getZxid() > 0) {
                     lastZxid = p.getZxid();
                 }
+                // LRMP Part
                 if (p.getType() == Leader.PROPOSAL) {
-                    // LRMP
                     LOG.info("LRMP: Got proposol message, Call LRMP to send multicast packet!");
-                    BufferedOutputStream bos = new BufferedOutputStream(lrmpSocket.getOutputStream());
-                    mcoa = BinaryOutputArchive.getArchive(bos);
-                    mcoa.writeRecord(p, "packet");
-                    bos.close();
+                    synchronized(lrmpHandler) {
+                        lrmpHandler.addToSend(p);
+                    }
                 }else{
                     oa.writeRecord(p, "packet");
                 }

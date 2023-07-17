@@ -53,6 +53,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import javax.security.sasl.SaslException;
+
+import org.apache.jute.BinaryOutputArchive;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs.OpCode;
 import org.apache.zookeeper.common.Time;
@@ -74,7 +76,9 @@ import org.apache.zookeeper.util.ServiceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import inria.net.lrmp.*;;
+import inria.net.lrmp.*;
+import java.util.HashSet;
+import java.io.BufferedOutputStream;;
 
 /**
  * This class has the control logic for the Leader.
@@ -491,13 +495,43 @@ public class Leader extends LearnerMaster {
             closeSockets();
         }
 
+        class LrmpSocketHandler {
+            private LrmpSocketWrapper sock;
+            private Set<Long> ids;
+            private BinaryOutputArchive mcoa;
+
+            public LrmpSocketHandler() {
+                sock = lrmpSocket;
+                ids = new HashSet<Long>();
+            }
+
+            public void addToSend(QuorumPacket qp) {
+                if (!ids.contains(qp.getZxid())) {
+                    LOG.warn("zxid = {} not send before, send to followers", Long.toHexString(qp.getZxid()));
+                    ids.add(qp.getZxid());
+                    BufferedOutputStream bos = new BufferedOutputStream(sock.getOutputStream());
+                    mcoa = BinaryOutputArchive.getArchive(bos);
+                    try {
+                        mcoa.writeRecord(qp, "packet");
+                        bos.flush();
+                        bos.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    
+                }
+            }
+        }
+
         class LearnerCnxAcceptorHandler implements Runnable {
             private ServerSocket serverSocket;
             private CountDownLatch latch;
+            private LrmpSocketHandler lrmpHandler;
 
             LearnerCnxAcceptorHandler(ServerSocket serverSocket, CountDownLatch latch) {
                 this.serverSocket = serverSocket;
                 this.latch = latch;
+                lrmpHandler = new LrmpSocketHandler();
             }
 
             @Override
@@ -531,7 +565,8 @@ public class Leader extends LearnerMaster {
                     socket.setTcpNoDelay(nodelay);
 
                     BufferedInputStream is = new BufferedInputStream(socket.getInputStream());
-                    LearnerHandler fh = new LearnerHandler(socket, is, Leader.this, lrmpSocket);
+                    // LearnerHandler fh = new LearnerHandler(socket, is, Leader.this, lrmpSocket);
+                    LearnerHandler fh = new LearnerHandler(socket, is, Leader.this, lrmpHandler);
                     fh.start();
                 } catch (SocketException e) {
                     error = true;
