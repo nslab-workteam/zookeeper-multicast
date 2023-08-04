@@ -136,7 +136,10 @@ fi
 
 # default heap for zookeeper server
 ZK_SERVER_HEAP="${ZK_SERVER_HEAP:-1000}"
-export SERVER_JVMFLAGS="-Xmx${ZK_SERVER_HEAP}m $SERVER_JVMFLAGS"
+export SERVER_JVMFLAGS="-Xmx${ZK_SERVER_HEAP}m \
+--add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+--add-opens java.base/java.util.zip=ALL-UNNAMED \
+$SERVER_JVMFLAGS"
 
 # default heap for zookeeper client
 ZK_CLIENT_HEAP="${ZK_CLIENT_HEAP:-256}"

@@ -21,6 +21,7 @@ package org.apache.zookeeper.server.quorum;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.BufferedInputStream;
+import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -78,6 +79,7 @@ public class Follower extends Learner {
     Follower(final QuorumPeer self, final FollowerZooKeeperServer zk, LrmpSocketWrapper lrmpSocket) {
         this(self, zk);
         this.lrmpSocket = lrmpSocket;
+        leaderMcIs = BinaryInputArchive.getArchive(lrmpSocket.getInputStream());
     }
 
     @Override
@@ -152,15 +154,19 @@ public class Follower extends Learner {
                 qpm.setZxid(0x1L);
 
                 while (this.isRunning()) {
-                    qp = new QuorumPacket();
-                    readPacketFromLrmp(qpm);
-                    if (qpm.getZxid() > lastZxid) {
-                        processPacketFromLrmp(qpm);
-                        LOG.warn("last proposal: {}", Long.toHexString(lastZxid));
-                        LOG.warn("new proposal: {}", Long.toHexString(qpm.getZxid()));
-                        lastZxid = qpm.getZxid();
-                    }
                     try {
+                        readPacketFromLrmp(qpm);
+                        if (qpm.getZxid() > lastZxid) {
+                            processPacketFromLrmp(qpm);
+                            lastZxid = qpm.getZxid();
+                        }
+                    } catch (SocketTimeoutException e) {
+                        LOG.debug("No Lrmp data to receive!");
+                    }
+                    
+
+                    try {
+                        qp = new QuorumPacket();
                         readPacket(qp);
                         if (qp.getType() == Leader.COMMIT) {
                             commitQueue.add(qp);
@@ -168,7 +174,7 @@ public class Follower extends Learner {
                             processPacket(qp);
                         }
                     } catch (SocketTimeoutException e) {
-                        LOG.debug("No data to receive!");
+                        LOG.debug("No TCP data to receive!");
                     }
 
                     for (QuorumPacket c = commitQueue.peek(); c != null && c.getZxid() <= lastZxid; c = commitQueue.peek()) {
@@ -207,7 +213,6 @@ public class Follower extends Learner {
      * @throws IOException
      */
     protected void processPacket(QuorumPacket qp) throws Exception {
-        LOG.warn("packet type: {}", LearnerHandler.packetToString(qp));
         switch (qp.getType()) {
         case Leader.PING:
             ping(qp);
@@ -301,20 +306,17 @@ public class Follower extends Learner {
 
     
     void readPacketFromLrmp(QuorumPacket pp) throws IOException {
-        InputStream fromLrmpLeader = lrmpSocket.getInputStream();
-        if (fromLrmpLeader != null) {
-            leaderMcIs = BinaryInputArchive.getArchive(new BufferedInputStream(fromLrmpLeader));
+        synchronized (leaderMcIs) {
             leaderMcIs.readRecord(pp, "packet");
-            // fromLrmpLeader.close();
             messageTracker.trackReceived(pp.getType());
+            LOG.warn("recv pkt from lrmp, packet = {}", LearnerHandler.packetToString(pp));
+        }
+        if (LOG.isTraceEnabled()) {
+            final long traceMask =
+                (pp.getType() == Leader.PING) ? ZooTrace.SERVER_PING_TRACE_MASK
+                    : ZooTrace.SERVER_PACKET_TRACE_MASK;
 
-            if (LOG.isTraceEnabled()) {
-                final long traceMask =
-                    (pp.getType() == Leader.PING) ? ZooTrace.SERVER_PING_TRACE_MASK
-                        : ZooTrace.SERVER_PACKET_TRACE_MASK;
-    
-                ZooTrace.logQuorumPacket(LOG, traceMask, 'i', pp);
-            }
+            ZooTrace.logQuorumPacket(LOG, traceMask, 'i', pp);
         }
 
     }

@@ -24,6 +24,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.OutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -499,27 +500,46 @@ public class Leader extends LearnerMaster {
             private LrmpSocketWrapper sock;
             private Set<Long> ids;
             private BinaryOutputArchive mcoa;
+            private OutputStream os;
 
             public LrmpSocketHandler() {
                 sock = lrmpSocket;
                 ids = new HashSet<Long>();
+                os = sock.getOutputStream();
+                mcoa = BinaryOutputArchive.getArchive(os);
             }
 
             public void addToSend(QuorumPacket qp) {
                 if (!ids.contains(qp.getZxid())) {
                     LOG.warn("zxid = {} not send before, send to followers", Long.toHexString(qp.getZxid()));
                     ids.add(qp.getZxid());
-                    BufferedOutputStream bos = new BufferedOutputStream(sock.getOutputStream());
-                    mcoa = BinaryOutputArchive.getArchive(bos);
+                    ByteArrayOutputStream bos_t = new ByteArrayOutputStream();
+                    try {
+                        qp.serialize(new BinaryOutputArchive(new DataOutputStream(bos_t)), "");
+                    } catch (IOException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    }
+                    LOG.warn("qp to write: {}, total {} bytes", bytesToHex(bos_t.toByteArray()), bos_t.toByteArray().length);
                     try {
                         mcoa.writeRecord(qp, "packet");
-                        bos.flush();
-                        bos.close();
+                        os.flush();
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
                     
                 }
+            }
+
+            private final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
+            private String bytesToHex(byte[] bytes) {
+                char[] hexChars = new char[bytes.length * 2];
+                for (int j = 0; j < bytes.length; j++) {
+                    int v = bytes[j] & 0xFF;
+                    hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+                    hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+                }
+                return new String(hexChars);
             }
         }
 

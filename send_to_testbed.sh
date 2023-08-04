@@ -13,11 +13,21 @@ h4="192.168.132.34"
 h10="192.168.132.47"
 h9="192.168.132.46"
 h11="192.168.132.48"
+h12="192.168.132.49"
 
+echo "Send to h1"
 sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h1:$target_path
-sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h2:$target_path
+# echo "Send to h2"
+# sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h2:$target_path
+echo "Send to h3"
 sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h3:$target_path
-sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h4:$target_path
-sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h10:$target_path
-sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h9:$target_path
-sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h11:$target_path
+# echo "Send to h4"
+# sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h4:$target_path
+# echo "Send to h10"
+# sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h10:$target_path
+# echo "Send to h9"
+# sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h9:$target_path
+# echo "Send to h11"
+# sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h11:$target_path
+echo "Send to h12"
+sshpass -p $password scp $zookeeper_path $to_send_path/** $username@$h12:$target_path
