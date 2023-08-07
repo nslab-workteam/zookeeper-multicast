@@ -230,7 +230,7 @@ public class CircularBlockingQueue<E> implements BlockingQueue<E> {
 
   @Override
   public Object[] toArray() {
-    throw new UnsupportedOperationException();
+    return this.queue.toArray();
   }
 
   @Override

@@ -1333,7 +1333,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     public Observer observer;
 
     protected Follower makeFollower(FileTxnSnapLog logFactory) throws IOException {
-        return new Follower(this, new FollowerZooKeeperServer(logFactory, this, this.zkDb));
+        return new Follower(this, new FollowerZooKeeperServer(logFactory, this, this.zkDb), true);
     }
 
     protected Leader makeLeader(FileTxnSnapLog logFactory) throws IOException, X509Exception {

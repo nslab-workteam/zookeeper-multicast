@@ -177,6 +177,11 @@
       <artifactId>commons-io</artifactId>
       <scope>compile</scope>
     </dependency>
+    <dependency>
+      <groupId>io.aeron</groupId>
+      <artifactId>aeron-all</artifactId>
+      <version>1.41.4</version>
+    </dependency>
   </dependencies>
 
   <build>

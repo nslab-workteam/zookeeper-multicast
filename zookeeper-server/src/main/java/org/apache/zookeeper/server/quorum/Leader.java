@@ -120,6 +120,8 @@ public class Leader extends LearnerMaster {
 
     final QuorumPeer self;
 
+    final PacketSendAggregator pag;
+
     // VisibleForTesting
     protected boolean quorumFormed = false;
 
@@ -308,6 +310,8 @@ public class Leader extends LearnerMaster {
         }
 
         this.zk = zk;
+
+        pag = new PacketSendAggregator();
     }
 
     Optional<ServerSocket> createServerSocket(InetSocketAddress address, boolean portUnification, boolean sslQuorum) {
@@ -522,7 +526,8 @@ public class Leader extends LearnerMaster {
                     socket.setTcpNoDelay(nodelay);
 
                     BufferedInputStream is = new BufferedInputStream(socket.getInputStream());
-                    LearnerHandler fh = new LearnerHandler(socket, is, Leader.this);
+                    // LearnerHandler fh = new LearnerHandler(socket, is, Leader.this);
+                    LearnerHandler fh = new LearnerHandler(socket, is, Leader.this, pag);
                     fh.start();
                 } catch (SocketException e) {
                     error = true;
@@ -852,6 +857,7 @@ public class Leader extends LearnerMaster {
                }
            }
        }
+       pag.shutdown();
     }
 
     /** In a reconfig operation, this method attempts to find the best leader for next configuration.

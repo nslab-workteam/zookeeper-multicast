@@ -142,6 +142,11 @@ public class LearnerHandler extends ZooKeeperThread {
     private AtomicInteger packetCounter = new AtomicInteger();
 
     /**
+     * 
+     */
+    private PacketSendAggregator pag;
+
+    /**
      * This class controls the time that the Leader has been
      * waiting for acknowledgement of a proposal from this Learner.
      * If the time is above syncLimit, the connection will be closed.
@@ -299,6 +304,11 @@ public class LearnerHandler extends ZooKeeperThread {
         this.messageTracker = new MessageTracker(MessageTracker.BUFFERED_MESSAGE_SIZE);
     }
 
+    LearnerHandler(Socket sock, BufferedInputStream bufferedInput, LearnerMaster learnerMaster, PacketSendAggregator pag) throws IOException {
+        this(sock, bufferedInput, learnerMaster);
+        this.pag = pag;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -365,7 +375,16 @@ public class LearnerHandler extends ZooKeeperThread {
                 if (p.getZxid() > 0) {
                     lastZxid = p.getZxid();
                 }
-                oa.writeRecord(p, "packet");
+                if (pag != null) {
+                    if (p.getType() == Leader.PROPOSAL) {
+                        pag.addPacketToSend(p);
+                    } else {
+                        oa.writeRecord(p, "packet");
+                    }
+                } else {
+                    oa.writeRecord(p, "packet");
+                }
+                
                 packetsSent.incrementAndGet();
                 messageTracker.trackSent(p.getType());
             } catch (IOException e) {

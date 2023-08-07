@@ -131,6 +131,11 @@ public class QuorumPeerConfig {
         Integer.parseInt(System.getProperty(QuorumPeer.CONFIG_KEY_MULTI_ADDRESS_REACHABILITY_CHECK_TIMEOUT_MS,
                                             String.valueOf(MultipleAddresses.DEFAULT_TIMEOUT.toMillis())));
 
+    /**
+     * Multicast related configs
+     */
+    private static String interfaceAddr;
+
     protected String oraclePath;
 
     /**
@@ -385,6 +390,8 @@ public class QuorumPeerConfig {
                 multiAddressReachabilityCheckEnabled = parseBoolean(key, value);
             } else if (key.equals("oraclePath")) {
                 oraclePath = value;
+            } else if (key.equals("interfaceAddr")) {
+                interfaceAddr = value;
             } else {
                 System.setProperty("zookeeper." + key, value);
             }
@@ -921,6 +928,10 @@ public class QuorumPeerConfig {
 
     public Boolean getQuorumListenOnAllIPs() {
         return quorumListenOnAllIPs;
+    }
+
+    public String getInterfaceAddr() {
+        return interfaceAddr;
     }
 
     public boolean isMultiAddressEnabled() {

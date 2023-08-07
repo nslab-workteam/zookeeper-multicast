@@ -19,11 +19,17 @@
 package org.apache.zookeeper.server.quorum;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+
+import org.apache.jute.BinaryInputArchive;
 import org.apache.jute.Record;
 import org.apache.zookeeper.ZooDefs.OpCode;
 import org.apache.zookeeper.common.Time;
@@ -37,6 +43,7 @@ import org.apache.zookeeper.server.util.ZxidUtils;
 import org.apache.zookeeper.txn.SetDataTxn;
 import org.apache.zookeeper.txn.TxnDigest;
 import org.apache.zookeeper.txn.TxnHeader;
+import org.apache.zookeeper.util.CircularBlockingQueue;
 
 /**
  * This class has the control logic for the Follower.
@@ -49,10 +56,21 @@ public class Follower extends Learner {
 
     ObserverMaster om;
 
+    private AeronMessageGetter amg;
+
     Follower(final QuorumPeer self, final FollowerZooKeeperServer zk) {
         this.self = Objects.requireNonNull(self);
         this.fzk = Objects.requireNonNull(zk);
         this.zk = zk;
+    }
+
+    Follower(final QuorumPeer self, final FollowerZooKeeperServer zk, boolean multicastMode) {
+        this(self, zk);
+        if (multicastMode) {
+            LOG.info("Start multicast mode");
+            amg = new AeronMessageGetter();
+            amg.start();
+        }
     }
 
     @Override
@@ -120,9 +138,48 @@ public class Follower extends Learner {
                 }
                 // create a reusable packet to reduce gc impact
                 QuorumPacket qp = new QuorumPacket();
+                QuorumPacket qpm = new QuorumPacket();
+                // Set socket to non-blocking IO
+                sock.setSoTimeout(1);
+                // A pointer to received data
+                byte[] buf = null;
+                // A circular queue to save uncommit COMMIT packet
+                CircularBlockingQueue<QuorumPacket> commitQ = new CircularBlockingQueue<>(100);
+                // Last received PROPOSAL zxid
+                long lastZxid = 0L;
                 while (this.isRunning()) {
-                    readPacket(qp);
-                    processPacket(qp);
+                    // TODO
+                    if (amg != null) {
+                        try {
+                            buf = amg.getBytes();
+                            if (buf != null) {
+                                 LOG.info("Assembled length = {}", buf.length);
+                                // if (buf.length > 0) {
+                                    BinaryInputArchive ia = new BinaryInputArchive(new DataInputStream(new ByteArrayInputStream(buf)));
+                                    ia.readRecord(qpm, "packet");
+                                    processPacket(qpm);
+                                    lastZxid = qpm.getZxid();
+                                // }
+                            }
+                        } catch (IOException e) {}
+                    }
+                    try {
+                        readPacket(qp);
+                        if (qp.getType() == Leader.COMMIT) {
+                            commitQ.offer(qp);
+                        } else {
+                            processPacket(qp);
+                        }
+                    } catch (SocketTimeoutException e) {}
+                    
+                    for (Object commitPkt :commitQ.toArray()) {
+                        if (((QuorumPacket)commitPkt).getZxid() <= lastZxid) {
+                            LOG.info("Process out zxid={}", Long.toHexString(((QuorumPacket)commitPkt).getZxid()));
+                            processPacket((QuorumPacket)commitPkt);
+                            commitQ.take();
+                        }
+                    }
+
                 }
             } catch (Exception e) {
                 LOG.warn("Exception when following the leader", e);
