@@ -7,8 +7,12 @@ import java.util.HashSet;
 
 import io.aeron.Aeron;
 import io.aeron.Publication;
+import io.aeron.driver.CongestionControlSupplier;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
+import io.aeron.driver.ext.CubicCongestionControl;
+import io.aeron.driver.ext.CubicCongestionControlSupplier;
+
 import org.agrona.concurrent.BusySpinIdleStrategy;
 import org.agrona.concurrent.NoOpIdleStrategy;
 import org.agrona.concurrent.SigInt;
@@ -28,8 +32,8 @@ public class PacketSendAggregator {
      */
     private final String CHANNEL;
     private final int STREAM_ID = 101;
-    private final MediaDriver.Context mdCtx;
-    private final MediaDriver driver;
+    // private final MediaDriver.Context mdCtx;
+    // private final MediaDriver driver;
     private final Aeron.Context ctx;
     private final Aeron aeron;
     private final Publication publication;
@@ -49,18 +53,20 @@ public class PacketSendAggregator {
          * Get config from zookeeper for address
          */
         config = new QuorumPeerConfig();
-        CHANNEL = "aeron:udp?endpoint=225.0.0.3:40123|interface=" + config.getInterfaceAddr();
-        mdCtx = new MediaDriver.Context()
-                .termBufferSparseFile(false)
-                .useWindowsHighResTimer(true)
-                .threadingMode(ThreadingMode.DEDICATED)
-                .conductorIdleStrategy(BusySpinIdleStrategy.INSTANCE)
-                .receiverIdleStrategy(NoOpIdleStrategy.INSTANCE)
-                .senderIdleStrategy(NoOpIdleStrategy.INSTANCE);
-        driver = MediaDriver.launchEmbedded(mdCtx);
+        CHANNEL = "aeron:udp?endpoint=225.0.0.3:40123|interface=" + config.getInterfaceAddr() + "|fc=min|ttl=3";
+        // CHANNEL = "aeron:udp?control=0.0.0.0:40456|interface=" + config.getInterfaceAddr();
+        // mdCtx = new MediaDriver.Context()
+        //         .termBufferSparseFile(false)
+        //         .useWindowsHighResTimer(true)
+        //         .threadingMode(ThreadingMode.DEDICATED)
+        //         .conductorIdleStrategy(BusySpinIdleStrategy.INSTANCE)
+        //         .receiverIdleStrategy(NoOpIdleStrategy.INSTANCE)
+        //         .senderIdleStrategy(NoOpIdleStrategy.INSTANCE)
+        //         .congestControlSupplier(new CubicCongestionControlSupplier());
+        // driver = MediaDriver.launchEmbedded(mdCtx);
         ctx = new Aeron.Context();
-        ctx.aeronDirectoryName(driver.aeronDirectoryName());
-        
+        // ctx.aeronDirectoryName(driver.aeronDirectoryName());
+
         /**
          * Start Aeron session
          */
@@ -68,30 +74,16 @@ public class PacketSendAggregator {
         publication = aeron.addPublication(CHANNEL, STREAM_ID);
         buffer = new UnsafeBuffer(BufferUtil.allocateDirectAligned(1048576, 64));
 
-        /**
-         * Hello to receivers
-         */
-        long result;
-        do {
-            final int length = buffer.putStringWithoutLengthAscii(0, "HELLO");
-            result = publication.offer(buffer, 0, length);
-            try {
-                Thread.sleep(100);
-                LOG.warn("Followers not connected! Retry...");
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        } while (result <= 0);
         LOG.info("Followers has connected!");
         SigInt.register(()->{
-            publication.close();
-            aeron.close();
+            shutdown();
         });
     }
 
     public void addPacketToSend(QuorumPacket p) {
         synchronized (this) {
             if (!zxidSet.contains(p.getZxid())) {
+                LOG.debug("Sending zxid={}", Long.toHexString(p.getZxid()));
                 zxidSet.add(p.getZxid());
 
                 // send packet by Aeron channel
@@ -107,20 +99,21 @@ public class PacketSendAggregator {
                 long result = publication.offer(buffer, 0, data.length);
 
                 // Resend packet if not successed
-                if (result <= 0) {
+                if (result < 0) {
                     LOG.warn("Send failed! return {}", getReason(result));
-                    for (int i=0; i<8 && result <= 0; i++) {
+                    for (int i=0; i<8 && result < 0; i++) {
                         LOG.warn("Retried {} times...", i);
                         buffer.putBytes(0, data);
                         result = publication.offer(buffer, 0, data.length);
                         try {
-                            Thread.sleep(50);
+                            Thread.sleep(5);
                         } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
                         LOG.warn("Resend! return {}", getReason(result));
                     }
-                    LOG.warn("Retried 8 times, giving up...");
+                    if (result < 0)
+                        LOG.warn("Retried 8 times, giving up...");
                 }
             }
         }
@@ -152,6 +145,7 @@ public class PacketSendAggregator {
     }
 
     public void shutdown() {
+        LOG.info("Aeron shutting down...");
         publication.close();
         aeron.close();
     }

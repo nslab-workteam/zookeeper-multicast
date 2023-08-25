@@ -845,6 +845,7 @@ public class Leader extends LearnerMaster {
             }
         }
         isShutdown = true;
+        pag.shutdown();
     }
 
     synchronized void closeSockets() {
@@ -857,7 +858,6 @@ public class Leader extends LearnerMaster {
                }
            }
        }
-       pag.shutdown();
     }
 
     /** In a reconfig operation, this method attempts to find the best leader for next configuration.

@@ -375,13 +375,10 @@ public class LearnerHandler extends ZooKeeperThread {
                 if (p.getZxid() > 0) {
                     lastZxid = p.getZxid();
                 }
-                if (pag != null) {
-                    if (p.getType() == Leader.PROPOSAL) {
-                        pag.addPacketToSend(p);
-                    } else {
-                        oa.writeRecord(p, "packet");
-                    }
+                if (p.getType() == Leader.PROPOSAL) {
+                    pag.addPacketToSend(p);
                 } else {
+                    LOG.debug("Write {} via TCP", LearnerHandler.packetToString(p));
                     oa.writeRecord(p, "packet");
                 }
                 

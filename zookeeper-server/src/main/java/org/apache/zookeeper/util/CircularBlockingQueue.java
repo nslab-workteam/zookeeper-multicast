@@ -230,7 +230,13 @@ public class CircularBlockingQueue<E> implements BlockingQueue<E> {
 
   @Override
   public Object[] toArray() {
-    return this.queue.toArray();
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {
+      return this.queue.toArray();
+    } finally {
+      lock.unlock();
+    }
   }
 
   @Override

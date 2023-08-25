@@ -23,11 +23,17 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.jute.BinaryInputArchive;
 import org.apache.jute.Record;
@@ -57,6 +63,7 @@ public class Follower extends Learner {
     ObserverMaster om;
 
     private AeronMessageGetter amg;
+    // inherit from Learner
 
     Follower(final QuorumPeer self, final FollowerZooKeeperServer zk) {
         this.self = Objects.requireNonNull(self);
@@ -137,49 +144,109 @@ public class Follower extends Learner {
                     om = null;
                 }
                 // create a reusable packet to reduce gc impact
-                QuorumPacket qp = new QuorumPacket();
                 QuorumPacket qpm = new QuorumPacket();
                 // Set socket to non-blocking IO
-                sock.setSoTimeout(1);
-                // A pointer to received data
-                byte[] buf = null;
-                // A circular queue to save uncommit COMMIT packet
-                CircularBlockingQueue<QuorumPacket> commitQ = new CircularBlockingQueue<>(100);
+                // sock.setSoTimeout(10);
                 // Last received PROPOSAL zxid
-                long lastZxid = 0L;
+                AtomicLong lastZxid = new AtomicLong(0L);
+                // A circular queue to save uncommit COMMIT packet
+                Deque<QuorumPacket> commitDeque = new ArrayDeque<>();
+                byte[] buf = null;
+                Follower outer = this;
+                
+                Thread aeronThread = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        QuorumPacket qpm = new QuorumPacket();
+                        // A pointer to received data
+                        byte[] buf = null;
+                        while (outer.isRunning()) {
+                            try {
+                                buf = amg.getBytes();
+                                if (buf != null) {
+                                        // LOG.info("Assembled length = {}", buf.length);
+                                    if (buf.length > 0) {
+                                        BinaryInputArchive ia = new BinaryInputArchive(new DataInputStream(new ByteArrayInputStream(buf)));
+                                        ia.readRecord(qpm, "packet");
+                                        // LOG.info("Got proposal, zxid={}", Long.toHexString(qpm.getZxid()));
+                                        processPacket(qpm);
+                                        lastZxid.set(qpm.getZxid());
+                                    }
+                                }
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+                });
+                
+                Thread tcpThread = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            while(outer.isRunning()) {
+                                QuorumPacket qp = new QuorumPacket();
+                                readPacket(qp);
+                                if (qp.getType() == Leader.COMMIT) {
+                                    LOG.debug("Read commit zxid={}", Long.toHexString(qp.getZxid()));
+                                    commitDeque.offer(qp);
+                                } else {
+                                    processPacket(qp);
+                                }
+                            }
+                        } catch (SocketTimeoutException e) {
+                        } catch (Exception e) {
+                            LOG.warn("Exception when following the leader", e);
+                            closeSocket();
+
+                            // clear pending revalidations
+                            pendingRevalidations.clear();
+                        }
+                    }
+                });
+
+                aeronThread.start();
+                // tcpThread.start();
                 while (this.isRunning()) {
                     // TODO
-                    if (amg != null) {
-                        try {
-                            buf = amg.getBytes();
-                            if (buf != null) {
-                                 LOG.info("Assembled length = {}", buf.length);
-                                // if (buf.length > 0) {
-                                    BinaryInputArchive ia = new BinaryInputArchive(new DataInputStream(new ByteArrayInputStream(buf)));
-                                    ia.readRecord(qpm, "packet");
-                                    processPacket(qpm);
-                                    lastZxid = qpm.getZxid();
-                                // }
-                            }
-                        } catch (IOException e) {}
-                    }
+                    // try {
+                    //     buf = amg.getBytes();
+                    //     if (buf != null) {
+                    //             LOG.info("Assembled length = {}", buf.length);
+                    //         if (buf.length > 0) {
+                    //             BinaryInputArchive ia = new BinaryInputArchive(new DataInputStream(new ByteArrayInputStream(buf)));
+                    //             ia.readRecord(qpm, "packet");
+                    //             LOG.info("Got proposal, zxid={}", Long.toHexString(qpm.getZxid()));
+                    //             processPacket(qpm);
+                    //             lastZxid.set(qpm.getZxid());
+                    //         }
+                    //     }
+                    // } catch (IOException e) {
+                    //     e.printStackTrace();
+                    // }
                     try {
+                        QuorumPacket qp = new QuorumPacket();
                         readPacket(qp);
                         if (qp.getType() == Leader.COMMIT) {
-                            commitQ.offer(qp);
+                            LOG.debug("Read commit zxid={}", Long.toHexString(qp.getZxid()));
+                            commitDeque.offer(qp);
                         } else {
                             processPacket(qp);
                         }
                     } catch (SocketTimeoutException e) {}
-                    
-                    for (Object commitPkt :commitQ.toArray()) {
-                        if (((QuorumPacket)commitPkt).getZxid() <= lastZxid) {
-                            LOG.info("Process out zxid={}", Long.toHexString(((QuorumPacket)commitPkt).getZxid()));
+
+                    QuorumPacket ack = new QuorumPacket(Leader.ACK, 0, null, null);
+                    for (Object commitPkt :commitDeque.toArray()) {
+                        if (((QuorumPacket)commitPkt).getZxid() <= lastZxid.get()) {
+                            LOG.debug("Process out COMMIT zxid={}", Long.toHexString(((QuorumPacket)commitPkt).getZxid()));
                             processPacket((QuorumPacket)commitPkt);
-                            commitQ.take();
+                            ack.setZxid(((QuorumPacket)commitPkt).getZxid());
+                            writePacket(ack, true);
+                            commitDeque.pollFirst();
                         }
                     }
-
+                    
+                    
                 }
             } catch (Exception e) {
                 LOG.warn("Exception when following the leader", e);
@@ -217,6 +284,7 @@ public class Follower extends Learner {
             ping(qp);
             break;
         case Leader.PROPOSAL:
+            LOG.info(LearnerHandler.packetToString(qp));
             ServerMetrics.getMetrics().LEARNER_PROPOSAL_RECEIVED_COUNT.add(1);
             TxnLogEntry logEntry = SerializeUtils.deserializeTxn(qp.getData());
             TxnHeader hdr = logEntry.getHeader();
@@ -342,6 +410,7 @@ public class Follower extends Learner {
     public void shutdown() {
         LOG.info("shutdown Follower");
         super.shutdown();
+        amg.stopLoop();
     }
 
 }

@@ -100,6 +100,11 @@ public class Learner {
         return sock;
     }
 
+    /**
+     * For Aeron MDC
+     */
+    protected AeronMessageGetter amg = null;
+
     LearnerSender sender = null;
     protected InputArchive leaderIs;
     protected OutputArchive leaderOs;

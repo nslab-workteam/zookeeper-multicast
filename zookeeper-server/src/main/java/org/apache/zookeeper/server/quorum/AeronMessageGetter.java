@@ -1,6 +1,8 @@
 package org.apache.zookeeper.server.quorum;
 
 import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -9,7 +11,7 @@ import org.agrona.concurrent.BusySpinIdleStrategy;
 import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.NoOpIdleStrategy;
 import org.agrona.concurrent.SigInt;
-
+import org.apache.zookeeper.server.quorum.Learner.LeaderConnector;
 import org.apache.zookeeper.util.CircularBlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +21,7 @@ import io.aeron.FragmentAssembler;
 import io.aeron.Subscription;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
+import io.aeron.driver.ext.CubicCongestionControlSupplier;
 import io.aeron.logbuffer.FragmentHandler;
 
 public class AeronMessageGetter extends Thread{
@@ -29,9 +32,9 @@ public class AeronMessageGetter extends Thread{
      */
     private final String CHANNEL;
     private final int STREAM_ID = 101;
-    private final int fragmentLimitCount = 10;
-    private final MediaDriver.Context mdCtx;
-    private final MediaDriver driver;
+    private final int fragmentLimitCount = 764;
+    // private final MediaDriver.Context mdCtx;
+    // private final MediaDriver driver;
     private final Aeron.Context ctx;
     private final AtomicBoolean running;
     private final FragmentHandler fragmentHandler;
@@ -49,13 +52,14 @@ public class AeronMessageGetter extends Thread{
          * Get config from zookeeper for address
          */
         CHANNEL = "aeron:udp?endpoint=225.0.0.3:40123|interface=" + config.getInterfaceAddr();
-        mdCtx = new MediaDriver.Context()
-                .termBufferSparseFile(false)
-                .useWindowsHighResTimer(true)
-                .threadingMode(ThreadingMode.DEDICATED)
-                .conductorIdleStrategy(BusySpinIdleStrategy.INSTANCE)
-                .receiverIdleStrategy(NoOpIdleStrategy.INSTANCE)
-                .senderIdleStrategy(NoOpIdleStrategy.INSTANCE);
+        // mdCtx = new MediaDriver.Context()
+        //         .termBufferSparseFile(false)
+        //         .useWindowsHighResTimer(true)
+        //         .threadingMode(ThreadingMode.DEDICATED)
+        //         .conductorIdleStrategy(BusySpinIdleStrategy.INSTANCE)
+        //         .receiverIdleStrategy(NoOpIdleStrategy.INSTANCE)
+        //         .senderIdleStrategy(NoOpIdleStrategy.INSTANCE)
+        //         .congestControlSupplier(new CubicCongestionControlSupplier());
 
         running = new AtomicBoolean(true);
         // Register a SIGINT handler for graceful shutdown.
@@ -65,15 +69,45 @@ public class AeronMessageGetter extends Thread{
         fragmentHandler =
             (buffer, offset, length, header) ->
             {
-                LOG.info("Read out {} bytes", length);
+                LOG.debug("Read out {} bytes", length);
                 final byte[] data = new byte[length];
+                if (length == 5 && new String(data) == "HELLO") return;
                 buffer.getBytes(offset, data);
                 queue.offer(data);
             };
         fragmentAssembler = new FragmentAssembler(fragmentHandler);
-        driver = MediaDriver.launchEmbedded(mdCtx);
+        // driver = MediaDriver.launchEmbedded(mdCtx);
         ctx = new Aeron.Context();
-        ctx.aeronDirectoryName(driver.aeronDirectoryName());
+        // ctx.aeronDirectoryName(driver.aeronDirectoryName());
+    }
+
+    public AeronMessageGetter(InetAddress addr) {
+        config = new QuorumPeerConfig();
+        queue = new CircularBlockingQueue<byte[]>(100);
+        /**
+         * Get config from zookeeper for address
+         */
+        CHANNEL = "aeron:udp?endpoint=0.0.0.0:40457|control="+addr.getHostAddress()+":40456|control-mode=dynamic|interface=" + config.getInterfaceAddr();
+        // mdCtx = new MediaDriver.Context();
+
+        running = new AtomicBoolean(true);
+        // Register a SIGINT handler for graceful shutdown.
+        SigInt.register(() -> running.set(false));
+
+        // dataHandler method is called for every new datagram received
+        fragmentHandler =
+            (buffer, offset, length, header) ->
+            {
+                LOG.debug("Read out {} bytes", length);
+                final byte[] data = new byte[length];
+                if (length == 5) return;
+                buffer.getBytes(offset, data);
+                queue.offer(data);
+            };
+        fragmentAssembler = new FragmentAssembler(fragmentHandler);
+        // driver = MediaDriver.launchEmbedded(mdCtx);
+        ctx = new Aeron.Context();
+        // ctx.aeronDirectoryName(driver.aeronDirectoryName());
     }
 
     @Override
@@ -81,6 +115,7 @@ public class AeronMessageGetter extends Thread{
         /**
          * Start Aeron session
          */
+        LOG.info("Start Aeron session~~~");
         Aeron aeron = Aeron.connect(ctx);
         Subscription subscription = aeron.addSubscription(CHANNEL, STREAM_ID);
         IdleStrategy idleStrategy = new BackoffIdleStrategy(
@@ -90,7 +125,7 @@ public class AeronMessageGetter extends Thread{
             // poll delivers messages to the dataHandler as they arrive
             // and returns number of fragments read, or 0
             // if no data is available.
-            final int fragmentsRead = subscription.poll(fragmentHandler, fragmentLimitCount);
+            final int fragmentsRead = subscription.poll(fragmentAssembler, fragmentLimitCount);
             // Give the IdleStrategy a chance to spin/yield/sleep to reduce CPU
             // use if no messages were received.
             idleStrategy.idle(fragmentsRead);
@@ -101,7 +136,11 @@ public class AeronMessageGetter extends Thread{
         aeron.close();
     }
 
-    public byte[] getBytes() throws Exception {
-        return queue.poll(1, TimeUnit.MILLISECONDS);
+    public byte[] getBytes() throws InterruptedException {
+        return queue.take();
+    }
+
+    public void stopLoop() {
+        running.set(false);
     }
 }
