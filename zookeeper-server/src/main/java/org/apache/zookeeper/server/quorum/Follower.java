@@ -23,17 +23,15 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.jute.BinaryInputArchive;
 import org.apache.jute.Record;
@@ -49,7 +47,6 @@ import org.apache.zookeeper.server.util.ZxidUtils;
 import org.apache.zookeeper.txn.SetDataTxn;
 import org.apache.zookeeper.txn.TxnDigest;
 import org.apache.zookeeper.txn.TxnHeader;
-import org.apache.zookeeper.util.CircularBlockingQueue;
 
 /**
  * This class has the control logic for the Follower.
@@ -151,24 +148,23 @@ public class Follower extends Learner {
                 AtomicLong lastZxid = new AtomicLong(0L);
                 // A circular queue to save uncommit COMMIT packet
                 Deque<QuorumPacket> commitDeque = new ArrayDeque<>();
+                HashMap<Long, QuorumPacket> proposalMap = new HashMap<>();
                 byte[] buf = null;
                 Follower outer = this;
                 
                 Thread aeronThread = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        QuorumPacket qpm = new QuorumPacket();
                         // A pointer to received data
                         byte[] buf = null;
+                        QuorumPacket qpm = new QuorumPacket();
                         while (outer.isRunning()) {
                             try {
                                 buf = amg.getBytes();
                                 if (buf != null) {
-                                        // LOG.info("Assembled length = {}", buf.length);
                                     if (buf.length > 0) {
                                         BinaryInputArchive ia = new BinaryInputArchive(new DataInputStream(new ByteArrayInputStream(buf)));
                                         ia.readRecord(qpm, "packet");
-                                        // LOG.info("Got proposal, zxid={}", Long.toHexString(qpm.getZxid()));
                                         processPacket(qpm);
                                         lastZxid.set(qpm.getZxid());
                                     }
@@ -245,8 +241,6 @@ public class Follower extends Learner {
                             commitDeque.pollFirst();
                         }
                     }
-                    
-                    
                 }
             } catch (Exception e) {
                 LOG.warn("Exception when following the leader", e);
@@ -284,7 +278,7 @@ public class Follower extends Learner {
             ping(qp);
             break;
         case Leader.PROPOSAL:
-            LOG.info(LearnerHandler.packetToString(qp));
+            LOG.debug(LearnerHandler.packetToString(qp));
             ServerMetrics.getMetrics().LEARNER_PROPOSAL_RECEIVED_COUNT.add(1);
             TxnLogEntry logEntry = SerializeUtils.deserializeTxn(qp.getData());
             TxnHeader hdr = logEntry.getHeader();
@@ -324,6 +318,7 @@ public class Follower extends Learner {
             }
             break;
         case Leader.COMMIT:
+            LOG.debug(LearnerHandler.packetToString(qp));
             ServerMetrics.getMetrics().LEARNER_COMMIT_RECEIVED_COUNT.add(1);
             fzk.commit(qp.getZxid());
             if (om != null) {

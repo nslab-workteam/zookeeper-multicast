@@ -1,17 +1,12 @@
 package org.apache.zookeeper.server.quorum;
 
-import java.io.IOException;
-import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.agrona.concurrent.BackoffIdleStrategy;
-import org.agrona.concurrent.BusySpinIdleStrategy;
 import org.agrona.concurrent.IdleStrategy;
-import org.agrona.concurrent.NoOpIdleStrategy;
 import org.agrona.concurrent.SigInt;
-import org.apache.zookeeper.server.quorum.Learner.LeaderConnector;
 import org.apache.zookeeper.util.CircularBlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,13 +14,10 @@ import org.slf4j.LoggerFactory;
 import io.aeron.Aeron;
 import io.aeron.FragmentAssembler;
 import io.aeron.Subscription;
-import io.aeron.driver.MediaDriver;
-import io.aeron.driver.ThreadingMode;
-import io.aeron.driver.ext.CubicCongestionControlSupplier;
 import io.aeron.logbuffer.FragmentHandler;
 
-public class AeronMessageGetter extends Thread{
-        private QuorumPeerConfig config;
+public class AeronMessageGetter extends Thread implements MulticastPacketGetter{
+    private QuorumPeerConfig config;
     private final Logger LOG = LoggerFactory.getLogger(PacketSendAggregator.class);
     /**
      * Aeron used objects or property
@@ -47,11 +39,11 @@ public class AeronMessageGetter extends Thread{
 
     public AeronMessageGetter() {
         config = new QuorumPeerConfig();
-        queue = new CircularBlockingQueue<byte[]>(100);
+        queue = new CircularBlockingQueue<byte[]>(256 * 1024);
         /**
          * Get config from zookeeper for address
          */
-        CHANNEL = "aeron:udp?endpoint=225.0.0.3:40123|interface=" + config.getInterfaceAddr();
+        CHANNEL = "aeron:udp?endpoint=225.0.0.31:40123|interface=" + config.getInterfaceAddr();
         // mdCtx = new MediaDriver.Context()
         //         .termBufferSparseFile(false)
         //         .useWindowsHighResTimer(true)

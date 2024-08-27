@@ -136,6 +136,7 @@ fi
 
 # default heap for zookeeper server
 ZK_SERVER_HEAP="${ZK_SERVER_HEAP:-1000}"
+# ZK_SERVER_HEAP="4096"
 AERON_JVM_OPTION="--add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED"
 export SERVER_JVMFLAGS="-Xmx${ZK_SERVER_HEAP}m $SERVER_JVMFLAGS $AERON_JVM_OPTION"
 

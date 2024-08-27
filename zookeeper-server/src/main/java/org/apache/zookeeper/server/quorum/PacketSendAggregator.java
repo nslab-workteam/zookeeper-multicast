@@ -3,18 +3,9 @@ package org.apache.zookeeper.server.quorum;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.HashSet;
 
 import io.aeron.Aeron;
 import io.aeron.Publication;
-import io.aeron.driver.CongestionControlSupplier;
-import io.aeron.driver.MediaDriver;
-import io.aeron.driver.ThreadingMode;
-import io.aeron.driver.ext.CubicCongestionControl;
-import io.aeron.driver.ext.CubicCongestionControlSupplier;
-
-import org.agrona.concurrent.BusySpinIdleStrategy;
-import org.agrona.concurrent.NoOpIdleStrategy;
 import org.agrona.concurrent.SigInt;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.BufferUtil;
@@ -23,8 +14,7 @@ import org.apache.jute.BinaryOutputArchive;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class PacketSendAggregator {
-    private HashSet<Long> zxidSet;
+public class PacketSendAggregator implements MulticastPacketSender{
     private QuorumPeerConfig config;
     private final Logger LOG = LoggerFactory.getLogger(PacketSendAggregator.class);
     /**
@@ -46,14 +36,10 @@ public class PacketSendAggregator {
 
     public PacketSendAggregator() {
         /**
-         * For non-repeat zxid test
-         */
-        zxidSet = new HashSet<Long>();
-        /**
          * Get config from zookeeper for address
          */
         config = new QuorumPeerConfig();
-        CHANNEL = "aeron:udp?endpoint=225.0.0.3:40123|interface=" + config.getInterfaceAddr() + "|fc=min|ttl=3";
+        CHANNEL = "aeron:udp?endpoint=225.0.0.31:40123|interface=" + config.getInterfaceAddr() + "|fc=min|ttl=3";
         // CHANNEL = "aeron:udp?control=0.0.0.0:40456|interface=" + config.getInterfaceAddr();
         // mdCtx = new MediaDriver.Context()
         //         .termBufferSparseFile(false)
@@ -82,39 +68,36 @@ public class PacketSendAggregator {
 
     public void addPacketToSend(QuorumPacket p) {
         synchronized (this) {
-            if (!zxidSet.contains(p.getZxid())) {
-                LOG.debug("Sending zxid={}", Long.toHexString(p.getZxid()));
-                zxidSet.add(p.getZxid());
+            LOG.debug("PROPOSAL {}", Long.toHexString(p.getZxid()));
 
-                // send packet by Aeron channel
-                ByteArrayOutputStream os = new ByteArrayOutputStream();
-                oa = new BinaryOutputArchive(new DataOutputStream(os));
-                try {
-                    oa.writeRecord(p, "packet");
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                byte[] data = os.toByteArray();
-                buffer.putBytes(0, data);
-                long result = publication.offer(buffer, 0, data.length);
+            // send packet by Aeron channel
+            ByteArrayOutputStream os = new ByteArrayOutputStream();
+            oa = new BinaryOutputArchive(new DataOutputStream(os));
+            try {
+                oa.writeRecord(p, "packet");
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            byte[] data = os.toByteArray();
+            buffer.putBytes(0, data);
+            long result = publication.offer(buffer, 0, data.length);
 
-                // Resend packet if not successed
-                if (result < 0) {
-                    LOG.warn("Send failed! return {}", getReason(result));
-                    for (int i=0; i<8 && result < 0; i++) {
-                        LOG.warn("Retried {} times...", i);
-                        buffer.putBytes(0, data);
-                        result = publication.offer(buffer, 0, data.length);
-                        try {
-                            Thread.sleep(5);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                        LOG.warn("Resend! return {}", getReason(result));
+            // Resend packet if not successed
+            if (result < 0) {
+                LOG.debug("Send failed! return {}", getReason(result));
+                for (int i=0; i<8 && result < 0; i++) {
+                    LOG.debug("Retried {} times...", i);
+                    buffer.putBytes(0, data);
+                    result = publication.offer(buffer, 0, data.length);
+                    try {
+                        Thread.sleep(5);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
                     }
-                    if (result < 0)
-                        LOG.warn("Retried 8 times, giving up...");
+                    LOG.debug("Resend! return {}", getReason(result));
                 }
+                if (result < 0)
+                    LOG.warn("Retried 8 times, giving up...");
             }
         }
     }

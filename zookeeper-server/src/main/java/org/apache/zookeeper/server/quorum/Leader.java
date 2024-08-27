@@ -526,8 +526,8 @@ public class Leader extends LearnerMaster {
                     socket.setTcpNoDelay(nodelay);
 
                     BufferedInputStream is = new BufferedInputStream(socket.getInputStream());
-                    // LearnerHandler fh = new LearnerHandler(socket, is, Leader.this);
-                    LearnerHandler fh = new LearnerHandler(socket, is, Leader.this, pag);
+                    LearnerHandler fh = new LearnerHandler(socket, is, Leader.this);
+                    // LearnerHandler fh = new LearnerHandler(socket, is, Leader.this, pag);
                     fh.start();
                 } catch (SocketException e) {
                     error = true;
@@ -1144,8 +1144,12 @@ public class Leader extends LearnerMaster {
      */
     void sendPacket(QuorumPacket qp) {
         synchronized (forwardingFollowers) {
-            for (LearnerHandler f : forwardingFollowers) {
-                f.queuePacket(qp);
+            if (qp.getType() == Leader.PROPOSAL) {
+                pag.addPacketToSend(qp);
+            } else {
+                for (LearnerHandler f : forwardingFollowers) {
+                    f.queuePacket(qp);
+                }
             }
         }
     }
